@@ -58,11 +58,9 @@ class CarController(CarControllerBase):
     self.steer_power_last = 0
 
     # Ramp-release counters for MEB longitudinal: the EPB needs ACC_HMS_RAMP_RELEASE (5)
-    # for ~5 frames (100 ms) at override start and at long control disable
+    # for the first ~5 frames at override start and right after long control disables
     self.long_override_counter = 0
     self.long_disabled_counter = 0
-    self.long_override_last = False
-    self.long_enabled_last = False
 
   def update(self, CC, CS, now_nanos):
     if self.CP.flags & VolkswagenFlags.MEB:
@@ -195,28 +193,24 @@ class CarController(CarControllerBase):
       # Use CC.enabled (not CC.longActive) so we stay in the override branch during gas-press —
       # longActive flips to False on override, which would otherwise drop ACC_Status_ACC to 2 and
       # accel to ACCEL_INACTIVE, causing the TSK to re-arm and reject the next active frame.
-      override = CC.cruiseControl.override or CS.out.gasPressed
-      acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.enabled, override)
-      accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive else 0)
       stopping = actuators.longControlState == LongCtrlState.stopping
       starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < self.CP.vEgoStopping)
-      speed = CS.out.vEgoRaw * CV.MS_TO_KPH
+      accel = float(np.clip(actuators.accel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.enabled else 0)
 
-      # Rising-edge detect for ramp-release counters
-      if override and not self.long_override_last:
-        self.long_override_counter = 0
-      if not CC.enabled and self.long_enabled_last:
-        self.long_disabled_counter = 0
-      override_ramp = override and self.long_override_counter < 5
-      disable_ramp = not CC.enabled and self.long_disabled_counter < 5
-      self.long_override_counter = min(self.long_override_counter + 1, 50)
-      self.long_disabled_counter = min(self.long_disabled_counter + 1, 50)
-      self.long_override_last = override
-      self.long_enabled_last = CC.enabled
+      override = CC.cruiseControl.override or CS.out.gasPressed
+      self.long_override_counter = min(self.long_override_counter + 1, 5) if override else 0
+      override_begin = override and self.long_override_counter < 5
 
+      self.long_disabled_counter = min(self.long_disabled_counter + 1, 5) if not CC.enabled else 0
+      long_disabling = not CC.enabled and self.long_disabled_counter < 5
+
+      acc_control = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.enabled, override)
+      acc_hold = self.CCS.acc_hold_type(CS.out.accFaulted, CC.enabled, starting, stopping,
+                                        CS.esp_hold_confirmation, override, override_begin, long_disabling)
       can_sends.append(self.CCS.create_acc_accel_control(self.packer_pt, self.CAN.pt, CS.acc_type, CC.enabled,
-                                                         accel, acc_control, stopping, starting, CS.esp_hold_confirmation,
-                                                         override, speed, override_ramp, disable_ramp))
+                                                         accel, acc_control, acc_hold, stopping, starting,
+                                                         CS.esp_hold_confirmation, override,
+                                                         CS.out.vEgoRaw * CV.MS_TO_KPH))
 
     # **** HUD Controls ***************************************************** #
 

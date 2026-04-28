@@ -51,14 +51,16 @@ ACC_HMS_HOLD         = 1   # request stop-hold (EPB / brake-by-wire holds the ca
 ACC_HMS_NO_REQUEST   = 0
 
 
-def acc_hold_type(acc_enabled, override, starting, stopping, esp_hold, override_ramp, disable_ramp):
+def acc_hold_type(acc_faulted, long_active, starting, stopping, esp_hold, override, override_begin, long_disabling):
   # HMS state machine for the EPB / stop-and-go controller. The TSK expects a ramp-release (HMS=5)
   # for the first ~5 frames (100 ms at 50 Hz) after override begins and after long control disables,
   # so the EPB doesn't fault during low-speed transitions.
-  if not acc_enabled:
-    return ACC_HMS_RAMP_RELEASE if disable_ramp else ACC_HMS_NO_REQUEST
+  if acc_faulted:
+    return ACC_HMS_NO_REQUEST
+  if not long_active:
+    return ACC_HMS_RAMP_RELEASE if long_disabling else ACC_HMS_NO_REQUEST
   if override:
-    return ACC_HMS_RAMP_RELEASE if override_ramp else ACC_HMS_NO_REQUEST
+    return ACC_HMS_RAMP_RELEASE if override_begin else ACC_HMS_NO_REQUEST
   if starting:
     return ACC_HMS_RELEASE
   if stopping or esp_hold:
@@ -66,9 +68,8 @@ def acc_hold_type(acc_enabled, override, starting, stopping, esp_hold, override_
   return ACC_HMS_NO_REQUEST
 
 
-def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control,
-                             stopping, starting, esp_hold, override, speed,
-                             override_ramp=False, disable_ramp=False):
+def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control, acc_hold,
+                             stopping, starting, esp_hold, override, speed):
   # The TSK is byte-sensitive: an active ACC_18 must follow the stock layout closely or it faults.
   # In particular: ACC_Sollbeschleunigung_02 must be ACCEL_OVERRIDE (0.0) — not ACCEL_INACTIVE — while
   # the driver is overriding (the stock radar keeps a "live" accel during gas-press), and must be
@@ -91,8 +92,6 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   else:
     acceleration = ACCEL_INACTIVE
 
-  hold_mode = acc_hold_type(acc_enabled, override, starting, stopping, esp_hold, override_ramp, disable_ramp)
-
   values = {
     "ACC_Typ":                    acc_type,
     "ACC_Status_ACC":             acc_control,
@@ -105,7 +104,7 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
     "ACC_Anfahren":               starting,
     "ACC_Anhalten":               1 if actually_stopping else 0,
     "ACC_Anhalteweg":             0 if actually_stopping else 20.46,
-    "ACC_Anforderung_HMS":        hold_mode,
+    "ACC_Anforderung_HMS":        acc_hold,
     "ACC_AKTIV_regelt":           1 if active else 0,
     "Speed":                      speed,
     "SET_ME_0XFE":                0xFE,
