@@ -45,21 +45,41 @@ ACC_CTRL_OVERRIDE = 4
 ACC_CTRL_ACTIVE   = 3
 ACC_CTRL_ENABLED  = 2
 ACC_CTRL_DISABLED = 0
+ACC_HMS_RAMP_RELEASE = 5   # ramp-release: smooths EPB transition at override start / long disable
 ACC_HMS_RELEASE      = 4   # release stop-hold (drivetrain start moving from full stop)
 ACC_HMS_HOLD         = 1   # request stop-hold (EPB / brake-by-wire holds the car)
 ACC_HMS_NO_REQUEST   = 0
 
 
+def acc_hold_type(acc_enabled, override, starting, stopping, esp_hold, override_ramp, disable_ramp):
+  # HMS state machine for the EPB / stop-and-go controller. The TSK expects a ramp-release (HMS=5)
+  # for the first ~5 frames (100 ms at 50 Hz) after override begins and after long control disables,
+  # so the EPB doesn't fault during low-speed transitions.
+  if not acc_enabled:
+    return ACC_HMS_RAMP_RELEASE if disable_ramp else ACC_HMS_NO_REQUEST
+  if override:
+    return ACC_HMS_RAMP_RELEASE if override_ramp else ACC_HMS_NO_REQUEST
+  if starting:
+    return ACC_HMS_RELEASE
+  if stopping or esp_hold:
+    return ACC_HMS_HOLD
+  return ACC_HMS_NO_REQUEST
+
+
 def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_control,
-                             stopping, starting, esp_hold, override, speed):
+                             stopping, starting, esp_hold, override, speed,
+                             override_ramp=False, disable_ramp=False):
   # The TSK is byte-sensitive: an active ACC_18 must follow the stock layout closely or it faults.
   # In particular: ACC_Sollbeschleunigung_02 must be ACCEL_OVERRIDE (0.0) — not ACCEL_INACTIVE — while
   # the driver is overriding (the stock radar keeps a "live" accel during gas-press), and must be
   # ACCEL_INACTIVE while at full stop on newer-gen cars (a non-neutral accel at standstill faults).
   full_stop          = stopping and esp_hold
+  full_stop_no_start = esp_hold and not starting
   actually_stopping  = stopping and not esp_hold
   active             = acc_control == ACC_CTRL_ACTIVE
   active_or_override = acc_control in (ACC_CTRL_ACTIVE, ACC_CTRL_OVERRIDE)
+  # Zero jerk/tolerance during full stop hold — stock radar does this to avoid EPB faults
+  active_sending     = active_or_override and not full_stop_no_start
 
   if acc_enabled:
     if override:
@@ -71,25 +91,17 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
   else:
     acceleration = ACCEL_INACTIVE
 
-  # Hold mode signal: drives the car's stop-and-go state machine.
-  if not acc_enabled or override:
-    hold_mode = ACC_HMS_NO_REQUEST
-  elif starting:
-    hold_mode = ACC_HMS_RELEASE
-  elif stopping or esp_hold:
-    hold_mode = ACC_HMS_HOLD
-  else:
-    hold_mode = ACC_HMS_NO_REQUEST
+  hold_mode = acc_hold_type(acc_enabled, override, starting, stopping, esp_hold, override_ramp, disable_ramp)
 
   values = {
     "ACC_Typ":                    acc_type,
     "ACC_Status_ACC":             acc_control,
     "ACC_StartStopp_Info":        acc_enabled,
     "ACC_Sollbeschleunigung_02":  acceleration,
-    "ACC_zul_Regelabw_unten":     0.2 if active_or_override else 0,
-    "ACC_zul_Regelabw_oben":      0.2 if active_or_override else 0,
-    "ACC_neg_Sollbeschl_Grad_02": 4.0 if active_or_override else 0,
-    "ACC_pos_Sollbeschl_Grad_02": 4.0 if active_or_override else 0,
+    "ACC_zul_Regelabw_unten":     0.2 if active_sending else 0,
+    "ACC_zul_Regelabw_oben":      0.2 if active_sending else 0,
+    "ACC_neg_Sollbeschl_Grad_02": 4.0 if active_sending else 0,
+    "ACC_pos_Sollbeschl_Grad_02": 4.0 if active_sending else 0,
     "ACC_Anfahren":               starting,
     "ACC_Anhalten":               1 if actually_stopping else 0,
     "ACC_Anhalteweg":             0 if actually_stopping else 20.46,
