@@ -269,7 +269,11 @@ static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
   // ACC_18 — acceleration request to drivetrain coordinator (matches MQB ACC_06.ACC_Sollbeschleunigung_02 layout)
   if (msg->addr == MSG_ACC_18) {
     int desired_accel = ((((msg->data[4] & 0x7U) << 8) | msg->data[3]) * 5U) - 7220U;
-    if (longitudinal_accel_checks(desired_accel, VOLKSWAGEN_MEB_LONG_LIMITS)) {
+    // MEB override: the TSK expects accel=0 (ACCEL_OVERRIDE) while the driver is on the gas.
+    // The generic longitudinal_accel_checks blocks non-inactive accel when gas_pressed_prev is true,
+    // so we explicitly allow accel=0 when controls_allowed (the override path).
+    bool accel_override = controls_allowed && (desired_accel == 0);
+    if (!accel_override && longitudinal_accel_checks(desired_accel, VOLKSWAGEN_MEB_LONG_LIMITS)) {
       tx = false;
     }
   }
