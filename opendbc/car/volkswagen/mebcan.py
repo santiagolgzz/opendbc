@@ -117,9 +117,11 @@ def create_acc_accel_control(packer, bus, acc_type, acc_enabled, accel, acc_cont
 def acc_control_value(main_switch_on, acc_faulted, long_active, override):
   # ACC_Status_ACC for ACC_18. Override path keeps the cruise controller "alive" so the car
   # doesn't reject our message stream while the driver is on the gas.
-  if acc_faulted:
-    return ACC_CTRL_ERROR
+  # Only send ERROR while actively controlling — echoing the TSK fault after disengage
+  # confirms the error to the TSK and prolongs the fault recovery.
   if long_active:
+    if acc_faulted:
+      return ACC_CTRL_ERROR
     return ACC_CTRL_OVERRIDE if override else ACC_CTRL_ACTIVE
   return ACC_CTRL_ENABLED if main_switch_on else ACC_CTRL_DISABLED
 
