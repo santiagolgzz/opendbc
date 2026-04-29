@@ -42,10 +42,7 @@ class CarInterface(CarInterfaceBase):
 
     elif ret.flags & VolkswagenFlags.MEB:
       # Set global MEB parameters
-      safety_param = 0
-      if ret.flags & VolkswagenFlags.MEB_GEN2:
-        safety_param |= VolkswagenSafetyFlags.ALT_CRC_VARIANT_1.value
-      safety_configs = [get_safety_config(structs.CarParams.SafetyModel.volkswagenMeb, safety_param)]
+      safety_configs = [get_safety_config(structs.CarParams.SafetyModel.volkswagenMeb)]
 
       ret.transmissionType = TransmissionType.direct
       ret.steerControlType = structs.CarParams.SteerControlType.angle

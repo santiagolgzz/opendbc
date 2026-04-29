@@ -221,6 +221,12 @@ class CarController(CarControllerBase):
       can_sends.append(self.CCS.create_lka_hud_control(self.packer_pt, self.CAN.pt, CS.ldw_stock_values, CC.latActive,
                                                        CS.out.steeringPressed, hud_alert, hud_control, sound_alert=0))
 
+    if self.CP.openpilotLongitudinalControl and self.frame % self.CCP.ACC_HUD_STEP == 0:
+      override = CC.cruiseControl.override or CS.out.gasPressed
+      acc_hud_status = self.CCS.acc_control_value(CS.out.cruiseState.available, CS.out.accFaulted, CC.enabled, override)
+      set_speed = hud_control.setSpeed * CV.MS_TO_KPH
+      can_sends.append(self.CCS.create_acc_hud_control(self.packer_pt, self.CAN.pt, acc_hud_status, set_speed))
+
     # **** Stock ACC Button Controls **************************************** #
 
     gra_send_ready = self.CP.pcmCruise and CS.gra_stock_values["COUNTER"] != self.gra_acc_counter_last

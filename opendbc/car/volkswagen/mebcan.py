@@ -126,6 +126,18 @@ def acc_control_value(main_switch_on, acc_faulted, long_active, override):
   return ACC_CTRL_ENABLED if main_switch_on else ACC_CTRL_DISABLED
 
 
+def create_acc_hud_control(packer, bus, acc_control, set_speed):
+  # MEB_ACC_01 — minimum-viable ACC HUD: state + set-speed display.
+  # Without this frame the cluster shows a stock-ACC fault during alpha-long because
+  # the gateway no longer forwards the radar's MEB_ACC_01 once openpilot is steering.
+  values = {
+    "ACC_Status_ACC":      acc_control,
+    "ACC_Wunschgeschw_02": min(set_speed, 327.36),
+    "ACC_Display_Prio":    1,
+  }
+  return packer.make_can_msg("MEB_ACC_01", bus, values)
+
+
 def create_acc_buttons_control(packer, bus, gra_stock_values, cancel=False, resume=False):
   # Pass-through of stock GRA_ACC_01 with cancel/resume injection (used to forward driver button presses).
   values = {s: gra_stock_values[s] for s in [

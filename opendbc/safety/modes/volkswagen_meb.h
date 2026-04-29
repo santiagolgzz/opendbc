@@ -8,6 +8,7 @@
 #define MSG_Motor_51      0x10BU   // RX, drivetrain coordinator: TSK_Status + accel pedal (MEB)
 #define MSG_QFK_01        0x13DU   // RX, EPS lateral controller status + measured curvature (MEB)
 #define MSG_ACC_18        0x14DU   // TX, ACC acceleration request to drivetrain coordinator (MEB OP-long)
+#define MSG_MEB_ACC_01    0x300U   // TX, ACC HUD passthrough to instrument cluster (MEB OP-long)
 #define MSG_HCA_03        0x303U   // TX, Heading Control Assist curvature command (MEB)
 
 
@@ -20,10 +21,6 @@
 #define VW_MEB_RX_CHECKS                                                                            \
   {.msg = {{MSG_Motor_51,  0, 32,.max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}}, \
   {.msg = {{MSG_ESC_51,    0, 48,.max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-
-#define VW_MEB_GEN2_RX_CHECKS                                                                       \
-  {.msg = {{MSG_Motor_51,  0, 48,.max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}}, \
-  {.msg = {{MSG_ESC_51,    0, 64,.max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
 
 
 // MEB CRC computation (counter-XOR LUT variant)
@@ -57,48 +54,6 @@ static uint32_t volkswagen_meb_compute_crc(const CANPacket_t *msg) {
   return (uint8_t)(crc ^ 0xFFU);
 }
 
-// Gen2 (MEB_GEN2) variant: CRC over a fixed signal length subset of the message; falls back to standard CRC if the candidate didn't match.
-static uint32_t volkswagen_meb_gen2_compute_crc(const CANPacket_t *msg) {
-  if (!volkswagen_alt_crc_variant_1) {
-    return volkswagen_meb_compute_crc(msg);
-  }
-
-  int len = GET_LEN(msg);
-  if (msg->addr == MSG_QFK_01) {
-    len = 28;
-  } else if (msg->addr == MSG_ESC_51) {
-    len = 60;
-  } else if (msg->addr == MSG_Motor_51) {
-    len = 44;
-  } else {
-    return volkswagen_meb_compute_crc(msg);
-  }
-
-  uint8_t crc = 0xFFU;
-  for (int i = 1; i < len; i++) {
-    crc ^= (uint8_t)msg->data[i];
-    crc = volkswagen_crc8_lut_8h2f[crc];
-  }
-
-  uint8_t counter = volkswagen_mqb_meb_get_counter(msg);
-  if (msg->addr == MSG_QFK_01) {
-    crc ^= (uint8_t[]){0x18,0x71,0x10,0x8D,0xD7,0xAA,0xB0,0x78,0xAC,0x12,0xAE,0x0C,0xDD,0xF1,0x85,0x68}[counter];
-  } else if (msg->addr == MSG_ESC_51) {
-    crc ^= (uint8_t[]){0x69,0xDC,0xF9,0x64,0x6A,0xCE,0x55,0x2C,0xC4,0x38,0x8F,0xD1,0xC6,0x43,0xB4,0xB1}[counter];
-  } else if (msg->addr == MSG_Motor_51) {
-    crc ^= (uint8_t[]){0x2C,0xB1,0x1A,0x75,0xBB,0x65,0x79,0x47,0x81,0x2B,0xCC,0x96,0x17,0xDB,0xC0,0x94}[counter];
-  } else {
-    return volkswagen_meb_compute_crc(msg);
-  }
-
-  crc = (uint8_t)(volkswagen_crc8_lut_8h2f[crc] ^ 0xFFU);
-  if (crc != msg->data[0]) {
-    return volkswagen_meb_compute_crc(msg);
-  }
-  return (uint8_t)(crc);
-}
-
-
 // Lateral curvature limits — must match opendbc/car/volkswagen carcontroller curvature_to_can scale (1 / 6.7e-6).
 // Empirically validated values used by the sunnypilot fork's MEB port.
 static const CurvatureSteeringLimits VOLKSWAGEN_MEB_STEERING_LIMITS = {
@@ -119,12 +74,15 @@ static safety_config volkswagen_meb_init(uint16_t param) {
     {MSG_LDW_02,      0, 8,  .check_relay = true},
   };
 
-  // OP-long TX set: stock-long messages + ACC_18 acceleration request. GRA_ACC_01 is bypassed
-  // by openpilot in long mode (cruise state is driven by carcontrol, not by stock cruise buttons).
+  // OP-long TX set: stock-long messages + ACC_18 acceleration request + MEB_ACC_01 HUD.
+  // GRA_ACC_01 is bypassed by openpilot in long mode (cruise state is driven by carcontrol,
+  // not by stock cruise buttons). MEB_ACC_01 replaces the stock radar's HUD frame so the
+  // cluster shows the openpilot set-speed instead of a stock-ACC fault.
   static const CanMsg VOLKSWAGEN_MEB_LONG_TX_MSGS[] = {
     {MSG_HCA_03,      0, 24, .check_relay = true},
     {MSG_LDW_02,      0, 8,  .check_relay = true},
     {MSG_ACC_18,      0, 32, .check_relay = true},
+    {MSG_MEB_ACC_01,  0, 48, .check_relay = true},
   };
 
   static RxCheck volkswagen_meb_rx_checks[] = {
@@ -132,14 +90,8 @@ static safety_config volkswagen_meb_init(uint16_t param) {
     VW_MEB_RX_CHECKS
   };
 
-  static RxCheck volkswagen_meb_gen2_rx_checks[] = {
-    VW_MEB_COMMON_RX_CHECKS
-    VW_MEB_GEN2_RX_CHECKS
-  };
-
   volkswagen_set_button_prev = false;
   volkswagen_resume_button_prev = false;
-  volkswagen_alt_crc_variant_1 = GET_FLAG(param, FLAG_VOLKSWAGEN_ALT_CRC_VARIANT_1);
 
 #ifdef ALLOW_DEBUG
   volkswagen_longitudinal = GET_FLAG(param, FLAG_VOLKSWAGEN_LONG_CONTROL);
@@ -155,11 +107,7 @@ static safety_config volkswagen_meb_init(uint16_t param) {
   } else {
     SET_TX_MSGS(VOLKSWAGEN_MEB_STOCK_TX_MSGS, ret);
   }
-  if (volkswagen_alt_crc_variant_1) {
-    SET_RX_CHECKS(volkswagen_meb_gen2_rx_checks, ret);
-  } else {
-    SET_RX_CHECKS(volkswagen_meb_rx_checks, ret);
-  }
+  SET_RX_CHECKS(volkswagen_meb_rx_checks, ret);
   return ret;
 }
 
@@ -296,5 +244,5 @@ const safety_hooks volkswagen_meb_hooks = {
   .tx = volkswagen_meb_tx_hook,
   .get_counter = volkswagen_mqb_meb_get_counter,
   .get_checksum = volkswagen_mqb_meb_get_checksum,
-  .compute_checksum = volkswagen_meb_gen2_compute_crc,
+  .compute_checksum = volkswagen_meb_compute_crc,
 };

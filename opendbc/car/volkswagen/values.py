@@ -102,6 +102,7 @@ class CarControllerParams:
     elif CP.flags & VolkswagenFlags.MEB:
       # HCA_03 curvature command, panda enforces lateral jerk limits in opendbc/safety.
       self.LDW_STEP = 10
+      self.ACC_HUD_STEP = 6         # MEB_ACC_01 HUD frequency 16 Hz
       self.ACC_CONTROL_STEP = 2     # ACC_18 acceleration request, 50 Hz
       self.STEER_DRIVER_ALLOWANCE = 60   # 0.6 Nm — start ramping power down toward MIN
       self.STEER_DRIVER_MAX = 300        # 3.0 Nm — power floor at MIN
@@ -212,7 +213,6 @@ class WMI(StrEnum):
 
 class VolkswagenSafetyFlags(IntFlag):
   LONG_CONTROL = 1
-  ALT_CRC_VARIANT_1 = 2
 
 
 class VolkswagenFlags(IntFlag):
@@ -225,7 +225,6 @@ class VolkswagenFlags(IntFlag):
   MLB = 8
   MEB = 16
   ALT_GEAR = 32       # detected: Gateway_73 used for shifter (some MEB trims) instead of Getriebe_11
-  MEB_GEN2 = 64       # MEB Gen2 uses vw_meb_2024 DBC + alternate CRC variant
 
 
 @dataclass
@@ -246,8 +245,6 @@ class VolkswagenMEBPlatformConfig(PlatformConfig):
 
   def init(self):
     self.flags |= VolkswagenFlags.MEB
-    if self.flags & VolkswagenFlags.MEB_GEN2:
-      self.dbc_dict = {Bus.pt: 'vw_meb_2024'}
 
 
 @dataclass
@@ -480,13 +477,6 @@ class CAR(Platforms):
     VolkswagenCarSpecs(mass=2224, wheelbase=2.77),
     chassis_codes={"E2"},
     wmis={WMI.VOLKSWAGEN_USA_SUV, WMI.VOLKSWAGEN_EUROPE_CAR, WMI.VOLKSWAGEN_EUROPE_SUV},
-  )
-  VOLKSWAGEN_ID4_MK2 = VolkswagenMEBPlatformConfig(
-    [VWCarDocs("Volkswagen ID.4 2024-25")],
-    VolkswagenCarSpecs(mass=2224, wheelbase=2.77),
-    chassis_codes={"E8"},
-    wmis={WMI.VOLKSWAGEN_USA_SUV, WMI.VOLKSWAGEN_EUROPE_CAR, WMI.VOLKSWAGEN_EUROPE_SUV},
-    flags=VolkswagenFlags.MEB_GEN2,
   )
   AUDI_A3_MK3 = VolkswagenMQBPlatformConfig(
     [

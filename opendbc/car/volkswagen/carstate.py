@@ -353,11 +353,7 @@ class CarState(CarStateBase):
     # The TSK rejects an ACC_18 with ACC_Typ=0 as malformed and faults to state 7, so we mirror it.
     self.acc_type = 2
 
-    # MEB_GEN2 dropped the discrete Standstill bit in favor of a 2-bit Motion_State (3 = stopped).
-    if self.CP.flags & VolkswagenFlags.MEB_GEN2:
-      self.esp_hold_confirmation = pt_cp.vl["ESC_50"]["Motion_State"] == 3
-    else:
-      self.esp_hold_confirmation = bool(pt_cp.vl["ESC_50"]["Standstill"])
+    self.esp_hold_confirmation = bool(pt_cp.vl["ESC_50"]["Standstill"])
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation
 
     # Capture stock values for forwarding/HUD
