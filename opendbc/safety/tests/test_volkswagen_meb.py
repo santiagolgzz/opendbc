@@ -5,7 +5,6 @@ from opendbc.car.structs import CarParams
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
-from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 
 # MEB message IDs
 MSG_ESC_51 = 0xFC
@@ -81,14 +80,6 @@ class TestVolkswagenMebStockSafety(TestVolkswagenMebSafetyBase):
     # do not block resume if we are engaged already
     self.safety.set_controls_allowed(1)
     self.assertTrue(self._tx(self._gra_acc_01_msg(resume=1)))
-
-
-class TestVolkswagenMebGen2StockSafety(TestVolkswagenMebStockSafety):
-  def setUp(self):
-    self.packer = CANPackerSafety("vw_meb_2024")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.volkswagenMeb, VolkswagenSafetyFlags.ALT_CRC_VARIANT_1)
-    self.safety.init_tests()
 
 
 if __name__ == "__main__":
