@@ -420,10 +420,12 @@ class CarState(CarStateBase):
 
   @staticmethod
   def get_can_parsers_meb(CP):
-    # MEB carstate uses VLDict auto-subscription (CANParser subscribes the first time a message
-    # is accessed). We don't need to pre-list signals here for the minimal lateral port.
+    # Blinkmodi_02 must be subscribed at 1 Hz: the BCM throttles it to ~1 Hz when no blinker is
+    # active and ~50 Hz when blinking. Auto rate inference latches the 50 Hz burst then flags the
+    # 1 Hz idle stream stale, dropping canValid every ~1 second and triggering canError disengage.
+    pt_messages = [("Blinkmodi_02", 1)]
     return {
-      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).pt),
+      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CanBus(CP).pt),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).cam),
       Bus.alt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).alt),
     }
