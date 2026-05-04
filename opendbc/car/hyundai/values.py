@@ -484,7 +484,7 @@ class CAR(Platforms):
   )
   KIA_NIRO_PHEV_2ND_GEN = HyundaiCanFDPlatformConfig(
     [HyundaiCarDocs("Kia Niro Plug-in Hybrid 2023-25", car_parts=CarParts.common([CarHarness.hyundai_a]))],
-    CarSpecs(mass=3336 * CV.LB_TO_KG, wheelbase=2.72, steerRatio=14.0, tireStiffnessFactor=0.6),
+    CarSpecs(mass=3336 * CV.LB_TO_KG, wheelbase=2.72, steerRatio=15.1, tireStiffnessFactor=1.0),
   )
   KIA_OPTIMA_G4 = HyundaiPlatformConfig(
     [HyundaiCarDocs("Kia Optima 2017", "Advanced Smart Cruise Control",
